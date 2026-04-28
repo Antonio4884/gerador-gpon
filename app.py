@@ -60,7 +60,7 @@ def processar_linhas(gerencia, linhas, data):
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
 
-            # 🔥 NOVO: suporte NCE como primária
+            # 🔥 suporte NCE como primária
             if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
                 try:
                     olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
@@ -216,18 +216,16 @@ def processar_linhas(gerencia, linhas, data):
 
 
 # =======================
-# GERAR TEXTO
+# GERAR TEXTO (SEM TICKET / DATA / GERÊNCIA)
 # =======================
 
 def gerar_tickets_texto(gerencia, linhas):
     data = datetime.now().strftime("%Y-%m-%d %H:%M")
     agrupado = processar_linhas(gerencia, linhas, data)
 
-    ticket = int(datetime.now().timestamp())
     resultado = ""
 
     for chave, dados in agrupado.items():
-        ticket += 1
         resultado += "\n============================\n"
 
         if gerencia == "PRIMARIA":
@@ -235,9 +233,6 @@ def gerar_tickets_texto(gerencia, linhas):
             portas = sorted(dados)
 
             resultado += f"""ALARME GPON – FALHA PRIMÁRIA
-TICKET: {ticket}
-Horário da queda: {data}
-Gerência: NOC
 
 {olt}
 
@@ -253,9 +248,6 @@ PORTAS GPON AFETADAS:
             lista = sorted(dados, key=lambda x: x["onu"])
 
             resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
-TICKET: {ticket}
-Horário da queda: {data}
-Gerência: {gerencia}
 
 {olt} - {slot}/{port}
 
