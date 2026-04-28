@@ -213,17 +213,13 @@ def gerar_tickets_texto(gerencia, linhas):
     resultado = ""
 
     for chave, dados in agrupado.items():
-        resultado += "\n============================\n"
 
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
             olt, data = chave
 
-            resultado += f"""ALARME GPON – FALHA PRIMÁRIA
-
-{olt}
-
-"""
+            # apenas lista as OLTs sem separadores
+            resultado += f"{olt}\n"
 
         # ================= SECUNDÁRIA =================
         else:
@@ -231,7 +227,8 @@ def gerar_tickets_texto(gerencia, linhas):
 
             lista = sorted(dados, key=lambda x: x["onu"])
 
-            resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
+            resultado += f"""
+ALARME GPON – FALHA SECUNDÁRIA
 
 {olt} - {slot}/{port}
 
@@ -241,6 +238,13 @@ ONUs e CONTRATOS AFETADOS:
 
             for e in lista:
                 resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
+
+    # título apenas uma vez para PRIMÁRIA
+    if gerencia == "PRIMARIA":
+        resultado = f"""ALARME GPON – FALHA PRIMÁRIA
+
+{resultado}
+"""
 
     return resultado
 
