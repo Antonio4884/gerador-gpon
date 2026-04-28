@@ -4,23 +4,23 @@ from datetime import datetime
 import re
 
 
-# ==================================
+# =======================
 # DETECTAR GERÊNCIA
-# ==================================
+# =======================
 
 def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # AMS → ONT direta
+        # 🔥 AMS PRIORIDADE
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # IMASTER / NCE com ONUID
+        # 🔥 NCE / IMASTER COM ONUID
         if "frame=" in l and "slot=" in l and "port=" in l and "onuid" in l:
             return "IMASTER"
 
-        # PRIMÁRIA
+        # 🔥 PRIMÁRIA
         if "los" in l or "fiber is broken" in l:
             return "PRIMARIA"
 
@@ -30,7 +30,7 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
-        # Outros
+        # OUTROS
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
@@ -49,26 +49,26 @@ def detectar_gerencia(linhas):
     return "IMASTER"
 
 
-# ==================================
+# =======================
 # AMS (ONT DIRETO)
-# ==================================
+# =======================
 
 def extrair_onts_ams(linhas):
     resultado = []
 
     for linha in linhas:
         linha = linha.strip()
-
         match = re.search(r'ONT:[^,]+', linha, re.IGNORECASE)
+
         if match:
             resultado.append(match.group(0))
 
     return "\n".join(resultado)
 
 
-# ==================================
+# =======================
 # PROCESSAR LINHAS
-# ==================================
+# =======================
 
 def processar_linhas(gerencia, linhas, data):
 
@@ -83,14 +83,10 @@ def processar_linhas(gerencia, linhas, data):
         if not linha:
             continue
 
-        # ==================================
-        # PRIMÁRIA
-        # ==================================
+        # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
 
-            # CASO 1 → padrão IMASTER/NCE
-            # Ex:
-            # slot=1 port=5
+            # CASO PADRÃO (slot= / port=)
             olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
             slot_match = re.search(r'slot=(\d+)', linha.lower())
             port_match = re.search(r'port=(\d+)', linha.lower())
@@ -100,30 +96,28 @@ def processar_linhas(gerencia, linhas, data):
                 slot = int(slot_match.group(1))
                 port = int(port_match.group(1))
 
-                agrupado[(olt, data)].add((slot, port))
+                agrupado[(f"{olt} - SLOT {slot} / PON {port}", data)].add("NORMAL")
                 continue
 
-            # CASO 2 → AMS5520
+            # CASO AMS5520
             # Ex:
             # PON Port:OLTCTA12:R1.S1.LT2.PON5
             ams_match = re.search(
-                r'pon port:(olt[^\s,:]+:[^\s,]+\.lt(\d+)\.pon(\d+))',
+                r'pon port:(olt[^\s,:]+:[^\s,]+\.lt\d+\.pon\d+)',
                 linha.lower()
             )
 
             if ams_match:
                 olt_completa = ams_match.group(1).upper()
 
-                # Aqui guardamos diretamente a OLT completa
-                agrupado[(olt_completa, data)].add(("AMS", "AMS"))
+                # guarda exatamente como veio
+                agrupado[(olt_completa, data)].add("AMS")
                 continue
 
             continue
 
-        # ==================================
-        # IMASTER / NCE
-        # ==================================
-        elif gerencia == "IMASTER":
+        # ================= IMASTER / NCE =================
+        if gerencia == "IMASTER":
 
             try:
                 olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
@@ -152,9 +146,7 @@ def processar_linhas(gerencia, linhas, data):
             except:
                 continue
 
-        # ==================================
-        # UNM2000
-        # ==================================
+        # ================= UNM2000 =================
         elif gerencia == "UNM2000":
             colunas = linha.split("\t")
 
@@ -179,9 +171,7 @@ def processar_linhas(gerencia, linhas, data):
             except:
                 continue
 
-        # ==================================
-        # ZTE
-        # ==================================
+        # ================= ZTE =================
         else:
             colunas = linha.split("\t")
 
@@ -212,9 +202,9 @@ def processar_linhas(gerencia, linhas, data):
     return agrupado
 
 
-# ==================================
+# =======================
 # GERAR TEXTO
-# ==================================
+# =======================
 
 def gerar_tickets_texto(gerencia, linhas):
     data = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -225,37 +215,17 @@ def gerar_tickets_texto(gerencia, linhas):
     for chave, dados in agrupado.items():
         resultado += "\n============================\n"
 
-        # ==================================
-        # PRIMÁRIA
-        # ==================================
+        # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
             olt, data = chave
-
-            # Caso AMS → já mostrar direto
-            if ("AMS", "AMS") in dados:
-                resultado += f"""ALARME GPON – FALHA PRIMÁRIA
-
-{olt}
-
-"""
-                continue
-
-            portas = sorted(dados)
 
             resultado += f"""ALARME GPON – FALHA PRIMÁRIA
 
 {olt}
 
-PORTAS GPON AFETADAS:
-
 """
 
-            for slot, port in portas:
-                resultado += f"SLOT {slot} / PON {port}\n"
-
-        # ==================================
-        # SECUNDÁRIA
-        # ==================================
+        # ================= SECUNDÁRIA =================
         else:
             olt, slot, port, data = chave
 
@@ -275,9 +245,9 @@ ONUs e CONTRATOS AFETADOS:
     return resultado
 
 
-# ==================================
+# =======================
 # INTERFACE WEB
-# ==================================
+# =======================
 
 st.set_page_config(
     page_title="Gerador GPON",
