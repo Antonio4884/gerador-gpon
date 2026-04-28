@@ -12,6 +12,10 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
+        # 🔥 AMS5520 (PRIORIDADE antes de outros)
+        if "ont:" in l and ".lt" in l and ".pon" in l:
+            return "AMS"
+
         # 🔥 PRIORIDADE: falha primária (LOS)
         if "los" in l or "feeder fiber is broken" in l:
             return "PRIMARIA"
@@ -41,6 +45,23 @@ def detectar_gerencia(linhas):
 
 
 # =======================
+# EXTRAIR ONTs AMS
+# =======================
+
+def extrair_onts_ams(linhas):
+    resultado = []
+
+    for linha in linhas:
+        linha = linha.strip()
+
+        match = re.search(r'ONT:[^,]+', linha)
+        if match:
+            resultado.append(match.group(0))
+
+    return "\n".join(resultado)
+
+
+# =======================
 # PROCESSAR LINHAS
 # =======================
 
@@ -60,7 +81,6 @@ def processar_linhas(gerencia, linhas, data):
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
 
-            # 🔥 suporte NCE como primária
             if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
                 try:
                     olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
@@ -81,7 +101,6 @@ def processar_linhas(gerencia, linhas, data):
 
                 continue
 
-            # >>> FORMATO PON PORT
             olt_match = re.search(r'PON Port:([^:]+)', linha)
             slot_match = re.search(r'\.LT(\d+)', linha)
             port_match = re.search(r'\.PON(\d+)', linha)
@@ -96,7 +115,6 @@ def processar_linhas(gerencia, linhas, data):
                     pass
                 continue
 
-            # >>> FORMATO ANTIGO
             try:
                 olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
                 slot_match = re.search(r'slot=(\d+)', linha.lower())
@@ -184,7 +202,7 @@ def processar_linhas(gerencia, linhas, data):
             except:
                 continue
 
-        # ================= ZTE / AMS =================
+        # ================= ZTE =================
         else:
             colunas = linha.split("\t")
 
@@ -216,7 +234,7 @@ def processar_linhas(gerencia, linhas, data):
 
 
 # =======================
-# GERAR TEXTO (SEM TICKET / DATA / GERÊNCIA)
+# GERAR TEXTO
 # =======================
 
 def gerar_tickets_texto(gerencia, linhas):
@@ -278,7 +296,12 @@ with col1:
         if entrada.strip():
             linhas = entrada.strip().split("\n")
             gerencia = detectar_gerencia(linhas)
-            resultado = gerar_tickets_texto(gerencia, linhas)
+
+            # 🔥 AMS SAÍDA DIRETA
+            if gerencia == "AMS":
+                resultado = extrair_onts_ams(linhas)
+            else:
+                resultado = gerar_tickets_texto(gerencia, linhas)
 
             st.session_state["resultado"] = resultado
         else:
