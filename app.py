@@ -103,14 +103,16 @@ def processar_linhas(gerencia, linhas, data):
 
             try:
                 olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
-                slot_match = re.search(r'slot=(\d+)', linha)
-                port_match = re.search(r'port=(\d+)', linha)
-                onu_match = re.search(r'onuid=(\d+)', linha.lower())
+                slot_match = re.search(r'slot=(\d+)', linha.lower())
+                port_match = re.search(r'port=(\d+)', linha.lower())
 
-                # 🔥 CONTRATO (Password OU Description)
-                contrato_match = re.search(r'password=(\d+)', linha.lower())
+                # 🔥 ONUID CORRIGIDO (robusto)
+                onu_match = re.search(r'onuid\s*=\s*(\d+)', linha.lower())
+
+                # 🔥 CONTRATO (password prioridade)
+                contrato_match = re.search(r'password\s*=\s*(\d+)', linha.lower())
                 if not contrato_match:
-                    contrato_match = re.search(r'description.*?=(\d+)', linha.lower())
+                    contrato_match = re.search(r'description.*?=\s*(\d+)', linha.lower())
 
                 if not (olt_match and slot_match and port_match):
                     continue
@@ -212,7 +214,6 @@ PORTAS GPON AFETADAS:
         else:
             olt, slot, port, data = chave
 
-            # 🔥 ordena por ONU
             lista = sorted(dados, key=lambda x: x["onu"])
 
             resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
