@@ -12,6 +12,10 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
+        # 🔥 PRIORIDADE: falha primária (LOS)
+        if "los" in l or "feeder fiber is broken" in l:
+            return "PRIMARIA"
+
         if "pon port:" in l and ".lt" in l and ".pon" in l:
             return "PRIMARIA"
 
@@ -56,6 +60,28 @@ def processar_linhas(gerencia, linhas, data):
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
 
+            # 🔥 NOVO: suporte NCE como primária
+            if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
+                try:
+                    olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
+                    slot_match = re.search(r'slot=(\d+)', linha.lower())
+                    port_match = re.search(r'port=(\d+)', linha.lower())
+
+                    if not (olt_match and slot_match and port_match):
+                        continue
+
+                    olt = olt_match.group(1)
+                    slot = int(slot_match.group(1))
+                    port = int(port_match.group(1))
+
+                    agrupado[(olt, data)].add((slot, port))
+
+                except:
+                    continue
+
+                continue
+
+            # >>> FORMATO PON PORT
             olt_match = re.search(r'PON Port:([^:]+)', linha)
             slot_match = re.search(r'\.LT(\d+)', linha)
             port_match = re.search(r'\.PON(\d+)', linha)
@@ -70,6 +96,7 @@ def processar_linhas(gerencia, linhas, data):
                     pass
                 continue
 
+            # >>> FORMATO ANTIGO
             try:
                 olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
                 slot_match = re.search(r'slot=(\d+)', linha.lower())
