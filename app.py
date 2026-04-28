@@ -12,15 +12,11 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # 🔥 1. UNM2000 (PRIORIDADE MÁXIMA)
-        if "\t" in linha and ("off line" in l or "link loss" in l):
-            return "UNM2000"
-
-        # 🔥 2. AMS5520 (somente padrão válido)
+        # 🔥 AMS5520 (PRIORIDADE antes de outros)
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # 🔥 3. PRIMÁRIA (LOS)
+        # 🔥 PRIORIDADE: falha primária (LOS)
         if "los" in l or "feeder fiber is broken" in l:
             return "PRIMARIA"
 
@@ -30,20 +26,20 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
-        # 🔥 4. IMASTER
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
         if "onuid" in l:
             return "IMASTER"
 
-        # 🔥 5. ZTE
         if "zte" in l or "com.zte" in l:
             return "ZTE"
 
-        # 🔥 6. AMS fallback (baixo risco agora)
         if re.search(r'\bams\b', l):
             return "AMS"
+
+        if "\t" in linha and ("off line" in l or "link loss" in l):
+            return "UNM2000"
 
     return "IMASTER"
 
@@ -53,16 +49,16 @@ def detectar_gerencia(linhas):
 # =======================
 
 def extrair_onts_ams(linhas):
-    resultado = set()  # 🔥 remove duplicados
+    resultado = []
 
     for linha in linhas:
         linha = linha.strip()
 
         match = re.search(r'ONT:[^,]+', linha)
         if match:
-            resultado.add(match.group(0))
+            resultado.append(match.group(0))
 
-    return "\n".join(sorted(resultado))
+    return "\n".join(resultado)
 
 
 # =======================
@@ -227,6 +223,12 @@ def processar_linhas(gerencia, linhas, data):
             except:
                 continue
 
+        # 🔥 NOVO: captura contrato via Password (sem quebrar nada existente)
+        if contrato in ["NCE", "", None]:
+            contrato_match = re.search(r'password=(\d+)', linha.lower())
+            if contrato_match:
+                contrato = contrato_match.group(1)
+
         chave = (olt, slot, port, data)
 
         agrupado[chave].append({
@@ -301,6 +303,7 @@ with col1:
             linhas = entrada.strip().split("\n")
             gerencia = detectar_gerencia(linhas)
 
+            # 🔥 AMS SAÍDA DIRETA
             if gerencia == "AMS":
                 resultado = extrair_onts_ams(linhas)
             else:
