@@ -12,12 +12,16 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # 🔥 AMS5520 (PRIORIDADE antes de outros)
+        # 🔥 AMS5520 (PRIORIDADE)
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # 🔥 PRIORIDADE: falha primária (LOS)
-        if "los" in l or "feeder fiber is broken" in l:
+        # 🔥 IMASTER COM ONU (PRIORIDADE SOBRE PRIMÁRIA)
+        if "onuid" in l:
+            return "IMASTER"
+
+        # 🔥 PRIMÁRIA REAL (sem ONU)
+        if ("los" in l or "feeder fiber is broken" in l) and "onuid" not in l:
             return "PRIMARIA"
 
         if "pon port:" in l and ".lt" in l and ".pon" in l:
@@ -27,9 +31,6 @@ def detectar_gerencia(linhas):
             return "PRIMARIA"
 
         if "frame=" in l and "slot=" in l and "port=" in l:
-            return "IMASTER"
-
-        if "onuid" in l:
             return "IMASTER"
 
         if "zte" in l or "com.zte" in l:
@@ -223,7 +224,7 @@ def processar_linhas(gerencia, linhas, data):
             except:
                 continue
 
-        # 🔥 NOVO: captura contrato via Password (sem quebrar nada existente)
+        # 🔥 NOVO: captura contrato via Password
         if contrato in ["NCE", "", None]:
             contrato_match = re.search(r'password=(\d+)', linha.lower())
             if contrato_match:
@@ -303,7 +304,6 @@ with col1:
             linhas = entrada.strip().split("\n")
             gerencia = detectar_gerencia(linhas)
 
-            # 🔥 AMS SAÍDA DIRETA
             if gerencia == "AMS":
                 resultado = extrair_onts_ams(linhas)
             else:
