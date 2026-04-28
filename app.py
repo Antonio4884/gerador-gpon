@@ -12,11 +12,9 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # AMS
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # PRIMÁRIA
         if "los" in l or "feeder fiber is broken" in l:
             return "PRIMARIA"
 
@@ -26,14 +24,12 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
-        # IMASTER / NCE
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
         if "onuid" in l:
             return "IMASTER"
 
-        # OUTROS
         if "zte" in l or "com.zte" in l:
             return "ZTE"
 
@@ -70,7 +66,7 @@ def processar_linhas(gerencia, linhas, data):
     if gerencia == "PRIMARIA":
         agrupado = defaultdict(set)
     else:
-        agrupado = defaultdict(list)
+        agrupado = defaultdict(dict)  # 🔥 ALTERADO PARA DICT
 
     for linha in linhas:
         linha = linha.strip()
@@ -199,10 +195,8 @@ def processar_linhas(gerencia, linhas, data):
 
         chave = (olt, slot, port, data)
 
-        agrupado[chave].append({
-            "onu": onu,
-            "contrato": contrato
-        })
+        # 🔥 NÃO DUPLICA MAIS
+        agrupado[chave][onu] = contrato
 
     return agrupado
 
@@ -237,7 +231,6 @@ PORTAS GPON AFETADAS:
 
         else:
             olt, slot, port, data = chave
-            lista = sorted(dados, key=lambda x: x["onu"])
 
             resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
 
@@ -247,8 +240,8 @@ ONUs e CONTRATOS AFETADOS:
 
 """
 
-            for e in lista:
-                resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
+            for onu in sorted(dados.keys()):
+                resultado += f"ONU {onu} - Contrato {dados[onu]}\n"
 
     return resultado
 
