@@ -12,10 +12,16 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
+        # 🔥 AMS PRIORIDADE
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        if "los" in l or "feeder fiber is broken" in l:
+        # 🔥 NCE / IMASTER COM ONUID (ANTES DE PRIMÁRIA)
+        if "frame=" in l and "slot=" in l and "port=" in l and "onuid" in l:
+            return "IMASTER"
+
+        # 🔥 PRIMÁRIA
+        if "los" in l or "fiber is broken" in l:
             return "PRIMARIA"
 
         if "pon port:" in l and ".lt" in l and ".pon" in l:
@@ -24,6 +30,7 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
+        # OUTROS
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
@@ -43,13 +50,14 @@ def detectar_gerencia(linhas):
 
 
 # =======================
-# AMS
+# AMS (ONT DIRETO)
 # =======================
 
 def extrair_onts_ams(linhas):
     resultado = []
 
     for linha in linhas:
+        linha = linha.strip()
         match = re.search(r'ONT:[^,]+', linha)
         if match:
             resultado.append(match.group(0))
@@ -66,21 +74,43 @@ def processar_linhas(gerencia, linhas, data):
     if gerencia == "PRIMARIA":
         agrupado = defaultdict(set)
     else:
-        agrupado = defaultdict(dict)  # 🔥 ALTERADO PARA DICT
+        agrupado = defaultdict(list)
 
     for linha in linhas:
         linha = linha.strip()
+
         if not linha:
             continue
 
-        l = linha.lower()
-
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
+
+            olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
+            slot_match = re.search(r'slot=(\d+)', linha.lower())
+            port_match = re.search(r'port=(\d+)', linha.lower())
+
+            if olt_match and slot_match and port_match:
+                olt = olt_match.group(1)
+                slot = int(slot_match.group(1))
+                port = int(port_match.group(1))
+
+                agrupado[(olt, data)].add((slot, port))
+
+            continue
+
+        # ================= IMASTER / NCE =================
+        if gerencia == "IMASTER":
+
             try:
-                olt_match = re.search(r'(olt[^\s,]+)', l)
-                slot_match = re.search(r'slot=(\d+)', l)
-                port_match = re.search(r'port=(\d+)', l)
+                olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
+                slot_match = re.search(r'slot=(\d+)', linha)
+                port_match = re.search(r'port=(\d+)', linha)
+                onu_match = re.search(r'onuid=(\d+)', linha.lower())
+
+                # 🔥 CONTRATO (Password OU Description)
+                contrato_match = re.search(r'password=(\d+)', linha.lower())
+                if not contrato_match:
+                    contrato_match = re.search(r'description.*?=(\d+)', linha.lower())
 
                 if not (olt_match and slot_match and port_match):
                     continue
@@ -89,63 +119,11 @@ def processar_linhas(gerencia, linhas, data):
                 slot = int(slot_match.group(1))
                 port = int(port_match.group(1))
 
-                agrupado[(olt, data)].add((slot, port))
+                onu = int(onu_match.group(1)) if onu_match else 0
+                contrato = contrato_match.group(1) if contrato_match else "NCE"
 
             except:
                 continue
-
-            continue
-
-        # ================= IMASTER / NCE =================
-        if gerencia == "IMASTER":
-
-            if "frame=" in l and "slot=" in l and "port=" in l:
-                try:
-                    olt_match = re.search(r'(olt[^\s,]+)', l)
-                    slot_match = re.search(r'slot=(\d+)', l)
-                    port_match = re.search(r'port=(\d+)', l)
-                    onu_match = re.search(r'onuid=(\d+)', l)
-
-                    if not (olt_match and slot_match and port_match and onu_match):
-                        continue
-
-                    olt = olt_match.group(1)
-                    slot = int(slot_match.group(1))
-                    port = int(port_match.group(1))
-                    onu = int(onu_match.group(1))
-
-                    # CONTRATO
-                    contrato_match = re.search(r'password=(\d+)', l)
-
-                    if not contrato_match:
-                        contrato_match = re.search(r'description of the ont.*?=(\d+)', l)
-
-                    contrato = contrato_match.group(1) if contrato_match else "NCE"
-
-                except:
-                    continue
-
-            else:
-                colunas = linha.split("\t")
-
-                if len(colunas) < 9:
-                    continue
-
-                try:
-                    onu_field = colunas[7]
-                    contrato = colunas[8]
-
-                    match = re.search(r'OnuID(\d+)', onu_field)
-                    if not match:
-                        continue
-
-                    onu = int(match.group(1))
-                    slot = int(colunas[4])
-                    port = int(colunas[5])
-                    olt = onu_field.split("/")[0]
-
-                except:
-                    continue
 
         # ================= UNM2000 =================
         elif gerencia == "UNM2000":
@@ -158,9 +136,9 @@ def processar_linhas(gerencia, linhas, data):
                 cliente = colunas[1]
 
                 if " " in cliente:
-                    contrato, _ = cliente.split(" ", 1)
+                    contrato = cliente.split(" ")[0]
                 elif "_" in cliente:
-                    contrato, _ = cliente.split("_", 1)
+                    contrato = cliente.split("_")[0]
                 else:
                     contrato = cliente
 
@@ -195,8 +173,10 @@ def processar_linhas(gerencia, linhas, data):
 
         chave = (olt, slot, port, data)
 
-        # 🔥 NÃO DUPLICA MAIS
-        agrupado[chave][onu] = contrato
+        agrupado[chave].append({
+            "onu": onu,
+            "contrato": contrato
+        })
 
     return agrupado
 
@@ -232,6 +212,9 @@ PORTAS GPON AFETADAS:
         else:
             olt, slot, port, data = chave
 
+            # 🔥 ordena por ONU
+            lista = sorted(dados, key=lambda x: x["onu"])
+
             resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
 
 {olt} - {slot}/{port}
@@ -240,14 +223,14 @@ ONUs e CONTRATOS AFETADOS:
 
 """
 
-            for onu in sorted(dados.keys()):
-                resultado += f"ONU {onu} - Contrato {dados[onu]}\n"
+            for e in lista:
+                resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
 
     return resultado
 
 
 # =======================
-# STREAMLIT
+# INTERFACE WEB
 # =======================
 
 st.set_page_config(page_title="Gerador GPON", layout="wide")
