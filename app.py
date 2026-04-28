@@ -12,11 +12,11 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # 🔥 AMS5520
+        # AMS
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # 🔥 PRIMÁRIA
+        # PRIMÁRIA
         if "los" in l or "feeder fiber is broken" in l:
             return "PRIMARIA"
 
@@ -26,14 +26,14 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
-        # 🔥 IMASTER / NCE
+        # IMASTER / NCE
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
         if "onuid" in l:
             return "IMASTER"
 
-        # 🔥 OUTROS
+        # OUTROS
         if "zte" in l or "com.zte" in l:
             return "ZTE"
 
@@ -62,7 +62,7 @@ def extrair_onts_ams(linhas):
 
 
 # =======================
-# PROCESSAR
+# PROCESSAR LINHAS
 # =======================
 
 def processar_linhas(gerencia, linhas, data):
@@ -81,7 +81,6 @@ def processar_linhas(gerencia, linhas, data):
 
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
-
             try:
                 olt_match = re.search(r'(olt[^\s,]+)', l)
                 slot_match = re.search(r'slot=(\d+)', l)
@@ -104,8 +103,7 @@ def processar_linhas(gerencia, linhas, data):
         # ================= IMASTER / NCE =================
         if gerencia == "IMASTER":
 
-            # 🔥 NOVO BLOCO CORRIGIDO
-            if "frame=" in l and "slot=" in l and "port=" in l":
+            if "frame=" in l and "slot=" in l and "port=" in l:
                 try:
                     olt_match = re.search(r'(olt[^\s,]+)', l)
                     slot_match = re.search(r'slot=(\d+)', l)
@@ -120,7 +118,7 @@ def processar_linhas(gerencia, linhas, data):
                     port = int(port_match.group(1))
                     onu = int(onu_match.group(1))
 
-                    # 🔥 CONTRATO (2 formatos)
+                    # CONTRATO
                     contrato_match = re.search(r'password=(\d+)', l)
 
                     if not contrato_match:
