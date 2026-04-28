@@ -12,16 +12,12 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # 🔥 AMS5520 (PRIORIDADE)
+        # 🔥 AMS5520
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # 🔥 IMASTER COM ONU (PRIORIDADE SOBRE PRIMÁRIA)
-        if "onuid" in l:
-            return "IMASTER"
-
-        # 🔥 PRIMÁRIA REAL (sem ONU)
-        if ("los" in l or "feeder fiber is broken" in l) and "onuid" not in l:
+        # 🔥 PRIMÁRIA
+        if "los" in l or "feeder fiber is broken" in l:
             return "PRIMARIA"
 
         if "pon port:" in l and ".lt" in l and ".pon" in l:
@@ -30,9 +26,14 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
+        # 🔥 IMASTER / NCE
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
+        if "onuid" in l:
+            return "IMASTER"
+
+        # 🔥 OUTROS
         if "zte" in l or "com.zte" in l:
             return "ZTE"
 
@@ -46,15 +47,13 @@ def detectar_gerencia(linhas):
 
 
 # =======================
-# EXTRAIR ONTs AMS
+# AMS
 # =======================
 
 def extrair_onts_ams(linhas):
     resultado = []
 
     for linha in linhas:
-        linha = linha.strip()
-
         match = re.search(r'ONT:[^,]+', linha)
         if match:
             resultado.append(match.group(0))
@@ -63,11 +62,11 @@ def extrair_onts_ams(linhas):
 
 
 # =======================
-# PROCESSAR LINHAS
+# PROCESSAR
 # =======================
 
 def processar_linhas(gerencia, linhas, data):
-    
+
     if gerencia == "PRIMARIA":
         agrupado = defaultdict(set)
     else:
@@ -75,51 +74,18 @@ def processar_linhas(gerencia, linhas, data):
 
     for linha in linhas:
         linha = linha.strip()
-
         if not linha:
             continue
+
+        l = linha.lower()
 
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
 
-            if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
-                try:
-                    olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
-                    slot_match = re.search(r'slot=(\d+)', linha.lower())
-                    port_match = re.search(r'port=(\d+)', linha.lower())
-
-                    if not (olt_match and slot_match and port_match):
-                        continue
-
-                    olt = olt_match.group(1)
-                    slot = int(slot_match.group(1))
-                    port = int(port_match.group(1))
-
-                    agrupado[(olt, data)].add((slot, port))
-
-                except:
-                    continue
-
-                continue
-
-            olt_match = re.search(r'PON Port:([^:]+)', linha)
-            slot_match = re.search(r'\.LT(\d+)', linha)
-            port_match = re.search(r'\.PON(\d+)', linha)
-
-            if olt_match and slot_match and port_match:
-                try:
-                    olt = olt_match.group(1)
-                    slot = int(slot_match.group(1))
-                    port = int(port_match.group(1))
-                    agrupado[(olt, data)].add((slot, port))
-                except:
-                    pass
-                continue
-
             try:
-                olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
-                slot_match = re.search(r'slot=(\d+)', linha.lower())
-                port_match = re.search(r'port=(\d+)', linha.lower())
+                olt_match = re.search(r'(olt[^\s,]+)', l)
+                slot_match = re.search(r'slot=(\d+)', l)
+                port_match = re.search(r'port=(\d+)', l)
 
                 if not (olt_match and slot_match and port_match):
                     continue
@@ -135,23 +101,32 @@ def processar_linhas(gerencia, linhas, data):
 
             continue
 
-        # ================= IMASTER =================
+        # ================= IMASTER / NCE =================
         if gerencia == "IMASTER":
 
-            if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
+            # 🔥 NOVO BLOCO CORRIGIDO
+            if "frame=" in l and "slot=" in l and "port=" in l":
                 try:
-                    olt_match = re.search(r'\t([^\t]+)\tFrame=', linha)
-                    slot_match = re.search(r'Slot=(\d+)', linha)
-                    port_match = re.search(r'Port=(\d+)', linha)
+                    olt_match = re.search(r'(olt[^\s,]+)', l)
+                    slot_match = re.search(r'slot=(\d+)', l)
+                    port_match = re.search(r'port=(\d+)', l)
+                    onu_match = re.search(r'onuid=(\d+)', l)
 
-                    if not (slot_match and port_match):
+                    if not (olt_match and slot_match and port_match and onu_match):
                         continue
 
-                    olt = olt_match.group(1) if olt_match else "OLT-NCE"
+                    olt = olt_match.group(1)
                     slot = int(slot_match.group(1))
                     port = int(port_match.group(1))
-                    onu = 0
-                    contrato = "NCE"
+                    onu = int(onu_match.group(1))
+
+                    # 🔥 CONTRATO (2 formatos)
+                    contrato_match = re.search(r'password=(\d+)', l)
+
+                    if not contrato_match:
+                        contrato_match = re.search(r'description of the ont.*?=(\d+)', l)
+
+                    contrato = contrato_match.group(1) if contrato_match else "NCE"
 
                 except:
                     continue
@@ -224,12 +199,6 @@ def processar_linhas(gerencia, linhas, data):
             except:
                 continue
 
-        # 🔥 NOVO: captura contrato via Password
-        if contrato in ["NCE", "", None]:
-            contrato_match = re.search(r'password=(\d+)', linha.lower())
-            if contrato_match:
-                contrato = contrato_match.group(1)
-
         chave = (olt, slot, port, data)
 
         agrupado[chave].append({
@@ -287,7 +256,7 @@ ONUs e CONTRATOS AFETADOS:
 
 
 # =======================
-# INTERFACE WEB
+# STREAMLIT
 # =======================
 
 st.set_page_config(page_title="Gerador GPON", layout="wide")
