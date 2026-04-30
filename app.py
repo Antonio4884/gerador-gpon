@@ -307,7 +307,17 @@ Interface: {olt} - {slot}/{port} - Secundaria
 st.set_page_config(page_title="Gerador GPON", layout="wide")
 st.title("🔧 Gerador de Alarmes GPON")
 
-entrada = st.text_area("Cole os alarmes aqui:", height=300)
+if "entrada" not in st.session_state:
+    st.session_state["entrada"] = ""
+
+if "resultado" not in st.session_state:
+    st.session_state["resultado"] = ""
+
+entrada = st.text_area(
+    "Cole os alarmes aqui:",
+    height=300,
+    key="entrada"
+)
 
 col1, col2 = st.columns(2)
 
@@ -335,8 +345,12 @@ with col1:
 
 with col2:
     if st.button("🧹 Limpar"):
+        st.session_state["entrada"] = ""
         st.session_state["resultado"] = ""
         st.rerun()
 
-if "resultado" in st.session_state:
-    st.text_area("Resultado:", st.session_state["resultado"], height=300)
+st.text_area(
+    "Resultado:",
+    st.session_state["resultado"],
+    height=300
+)
