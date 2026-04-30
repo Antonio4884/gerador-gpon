@@ -12,15 +12,19 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # 🔥 AMS PRIORIDADE
+        # AMS ONT
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # 🔥 NCE / IMASTER COM ONUID
+        # AMS SFP
+        if "ethernet lt port:" in l and ".lt" in l:
+            return "AMS_SFP"
+
+        # IMASTER / NCE
         if "frame=" in l and "slot=" in l and "port=" in l and "onuid" in l:
             return "IMASTER"
 
-        # 🔥 PRIMÁRIA
+        # PRIMÁRIA
         if "los" in l or "fiber is broken" in l:
             return "PRIMARIA"
 
@@ -30,7 +34,7 @@ def detectar_gerencia(linhas):
         if "location=frame" in l:
             return "PRIMARIA"
 
-        # OUTROS
+        # Outros
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
@@ -50,7 +54,7 @@ def detectar_gerencia(linhas):
 
 
 # =======================
-# AMS (ONT DIRETO)
+# AMS ONT
 # =======================
 
 def extrair_onts_ams(linhas):
@@ -58,10 +62,31 @@ def extrair_onts_ams(linhas):
 
     for linha in linhas:
         linha = linha.strip()
-        match = re.search(r'ONT:[^,]+', linha, re.IGNORECASE)
-
+        match = re.search(r'ONT:[^,]+', linha)
         if match:
             resultado.append(match.group(0))
+
+    return "\n".join(resultado)
+
+
+# =======================
+# AMS SFP
+# =======================
+
+def extrair_sfp_ams(linhas):
+    resultado = []
+
+    for linha in linhas:
+        linha = linha.strip()
+
+        match = re.search(
+            r'Ethernet LT Port:([^,]+,SFP)',
+            linha,
+            re.IGNORECASE
+        )
+
+        if match:
+            resultado.append(match.group(1))
 
     return "\n".join(resultado)
 
@@ -86,33 +111,16 @@ def processar_linhas(gerencia, linhas, data):
         # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
 
-            # CASO PADRÃO (slot= / port=)
             olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
             slot_match = re.search(r'slot=(\d+)', linha.lower())
             port_match = re.search(r'port=(\d+)', linha.lower())
 
             if olt_match and slot_match and port_match:
-                olt = olt_match.group(1).upper()
+                olt = olt_match.group(1)
                 slot = int(slot_match.group(1))
                 port = int(port_match.group(1))
 
-                agrupado[(f"{olt} - SLOT {slot} / PON {port}", data)].add("NORMAL")
-                continue
-
-            # CASO AMS5520
-            # Ex:
-            # PON Port:OLTCTA12:R1.S1.LT2.PON5
-            ams_match = re.search(
-                r'pon port:(olt[^\s,:]+:[^\s,]+\.lt\d+\.pon\d+)',
-                linha.lower()
-            )
-
-            if ams_match:
-                olt_completa = ams_match.group(1).upper()
-
-                # guarda exatamente como veio
-                agrupado[(olt_completa, data)].add("AMS")
-                continue
+                agrupado[(olt, data)].add((slot, port))
 
             continue
 
@@ -123,10 +131,13 @@ def processar_linhas(gerencia, linhas, data):
                 olt_match = re.search(r'(olt[^\s,]+)', linha.lower())
                 slot_match = re.search(r'slot=(\d+)', linha.lower())
                 port_match = re.search(r'port=(\d+)', linha.lower())
-
                 onu_match = re.search(r'onuid\s*=\s*(\d+)', linha.lower())
 
-                contrato_match = re.search(r'password\s*=\s*(\d+)', linha.lower())
+                contrato_match = re.search(
+                    r'password\s*=\s*(\d+)',
+                    linha.lower()
+                )
+
                 if not contrato_match:
                     contrato_match = re.search(
                         r'description.*?=\s*(\d+)',
@@ -136,12 +147,14 @@ def processar_linhas(gerencia, linhas, data):
                 if not (olt_match and slot_match and port_match):
                     continue
 
-                olt = olt_match.group(1).upper()
+                olt = olt_match.group(1)
                 slot = int(slot_match.group(1))
                 port = int(port_match.group(1))
-
                 onu = int(onu_match.group(1)) if onu_match else 0
-                contrato = contrato_match.group(1) if contrato_match else "NCE"
+                contrato = (
+                    contrato_match.group(1)
+                    if contrato_match else "NCE"
+                )
 
             except:
                 continue
@@ -184,7 +197,6 @@ def processar_linhas(gerencia, linhas, data):
 
                 onu = int(colunas[2])
                 contrato = colunas[3]
-
                 slot = 1
                 port = 1
                 olt = "OLT-ZTE"
@@ -213,22 +225,28 @@ def gerar_tickets_texto(gerencia, linhas):
     resultado = ""
 
     for chave, dados in agrupado.items():
+        resultado += "\n============================\n"
 
-        # ================= PRIMÁRIA =================
         if gerencia == "PRIMARIA":
             olt, data = chave
+            portas = sorted(dados)
 
-            # apenas lista as OLTs sem separadores
-            resultado += f"{olt}\n"
+            resultado += f"""ALARME GPON – FALHA PRIMÁRIA
 
-        # ================= SECUNDÁRIA =================
+{olt}
+
+PORTAS GPON AFETADAS:
+
+"""
+
+            for slot, port in portas:
+                resultado += f"SLOT {slot} / PON {port}\n"
+
         else:
             olt, slot, port, data = chave
-
             lista = sorted(dados, key=lambda x: x["onu"])
 
-            resultado += f"""
-ALARME GPON – FALHA SECUNDÁRIA
+            resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
 
 {olt} - {slot}/{port}
 
@@ -237,14 +255,9 @@ ONUs e CONTRATOS AFETADOS:
 """
 
             for e in lista:
-                resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
-
-    # título apenas uma vez para PRIMÁRIA
-    if gerencia == "PRIMARIA":
-        resultado = f"""ALARME GPON – FALHA PRIMÁRIA
-
-{resultado}
-"""
+                resultado += (
+                    f"ONU {e['onu']} - Contrato {e['contrato']}\n"
+                )
 
     return resultado
 
@@ -253,17 +266,11 @@ ONUs e CONTRATOS AFETADOS:
 # INTERFACE WEB
 # =======================
 
-st.set_page_config(
-    page_title="Gerador GPON",
-    layout="wide"
-)
+st.set_page_config(page_title="Gerador GPON", layout="wide")
 
 st.title("🔧 Gerador de Alarmes GPON")
 
-entrada = st.text_area(
-    "Cole os alarmes aqui:",
-    height=300
-)
+entrada = st.text_area("Cole os alarmes aqui:", height=300)
 
 col1, col2 = st.columns(2)
 
@@ -275,8 +282,15 @@ with col1:
 
             if gerencia == "AMS":
                 resultado = extrair_onts_ams(linhas)
+
+            elif gerencia == "AMS_SFP":
+                resultado = extrair_sfp_ams(linhas)
+
             else:
-                resultado = gerar_tickets_texto(gerencia, linhas)
+                resultado = gerar_tickets_texto(
+                    gerencia,
+                    linhas
+                )
 
             st.session_state["resultado"] = resultado
         else:
