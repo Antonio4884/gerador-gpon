@@ -12,30 +12,24 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # PRIMÁRIA CSV
         if "pon port:" in l and ".lt" in l and ".pon" in l:
             return "PRIMARIA_CSV"
 
-        # AMS5520 ONT
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
-        # AMS SFP
         if "ethernet lt port:" in l:
             return "AMS_SFP"
 
-        # IMASTER / NCE
         if "frame=" in l and "slot=" in l and "port=" in l:
             return "IMASTER"
 
         if "onuid" in l:
             return "IMASTER"
 
-        # ZTE
         if "zte" in l or "com.zte" in l:
             return "ZTE"
 
-        # UNM2000
         if "\t" in linha and ("off line" in l or "link loss" in l):
             return "UNM2000"
 
@@ -43,7 +37,7 @@ def detectar_gerencia(linhas):
 
 
 # =======================
-# DETECTAR TIPO FALHA
+# DETECTAR TIPO DE FALHA
 # =======================
 
 def detectar_tipo_falha(linhas):
@@ -68,8 +62,8 @@ def extrair_primaria_csv(linhas):
 
     for linha in linhas:
         linha = linha.strip()
-
         match = re.search(r'PON Port:([^,]+)', linha, re.IGNORECASE)
+
         if match:
             resultado.append(match.group(1))
 
@@ -85,8 +79,8 @@ def extrair_onts_ams(linhas):
 
     for linha in linhas:
         linha = linha.strip()
-
         match = re.search(r'ONT:[^,\s]+', linha)
+
         if match:
             resultado.append(match.group(0))
 
@@ -102,8 +96,8 @@ def extrair_sfp_ams(linhas):
 
     for linha in linhas:
         linha = linha.strip()
-
         match = re.search(r'Ethernet LT Port:([^,]+,SFP)', linha)
+
         if match:
             resultado.append(match.group(1))
 
@@ -125,36 +119,31 @@ def processar_linhas(gerencia, linhas, data):
 
         # ================= IMASTER =================
         if gerencia == "IMASTER":
+            try:
+                olt_match = re.search(r'(olt[^\s,\t]+)', linha, re.IGNORECASE)
+                slot_match = re.search(r'Slot=(\d+)', linha, re.IGNORECASE)
+                port_match = re.search(r'Port=(\d+)', linha, re.IGNORECASE)
+                onu_match = re.search(r'ONUID=(\d+)', linha, re.IGNORECASE)
 
-            if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
-                try:
-                    olt_match = re.search(r'(olt[^\s,\t]+)', linha, re.IGNORECASE)
-                    slot_match = re.search(r'Slot=(\d+)', linha, re.IGNORECASE)
-                    port_match = re.search(r'Port=(\d+)', linha, re.IGNORECASE)
-                    onu_match = re.search(r'ONUID=(\d+)', linha, re.IGNORECASE)
+                contrato_match = re.search(
+                    r'Password=(\d+)|Description of the ONT\(only for NMS\)=(\d+)',
+                    linha,
+                    re.IGNORECASE
+                )
 
-                    contrato_match = re.search(
-                        r'Password=(\d+)|Description of the ONT\(only for NMS\)=(\d+)',
-                        linha,
-                        re.IGNORECASE
-                    )
-
-                    if not (olt_match and slot_match and port_match and onu_match):
-                        continue
-
-                    olt = olt_match.group(1)
-                    slot = int(slot_match.group(1))
-                    port = int(port_match.group(1))
-                    onu = int(onu_match.group(1))
-
-                    contrato = "NCE"
-                    if contrato_match:
-                        contrato = contrato_match.group(1) or contrato_match.group(2)
-
-                except:
+                if not (olt_match and slot_match and port_match and onu_match):
                     continue
 
-            else:
+                olt = olt_match.group(1)
+                slot = int(slot_match.group(1))
+                port = int(port_match.group(1))
+                onu = int(onu_match.group(1))
+
+                contrato = "NCE"
+                if contrato_match:
+                    contrato = contrato_match.group(1) or contrato_match.group(2)
+
+            except:
                 continue
 
         # ================= UNM2000 =================
@@ -192,7 +181,6 @@ def processar_linhas(gerencia, linhas, data):
             try:
                 onu = int(colunas[2])
                 contrato = colunas[3]
-
                 slot = 1
                 port = 1
                 olt = "OLT-ZTE"
@@ -221,7 +209,7 @@ def gerar_tickets_texto(gerencia, linhas):
     data = datetime.now().strftime("%d/%m/%Y %H:%M")
     tipo = detectar_tipo_falha(linhas)
 
-    # ================= PRIMARIA =================
+    # ================= PRIMÁRIA =================
     if tipo == "PRIMARIA":
         olt = ""
         interfaces = []
@@ -274,7 +262,7 @@ Fone NOC 3318-7890
 
         return resultado
 
-    # ================= SECUNDARIA =================
+    # ================= SECUNDÁRIA =================
     agrupado = processar_linhas(gerencia, linhas, data)
     resultado = ""
 
@@ -301,6 +289,15 @@ Interface: {olt} - {slot}/{port} - Secundaria
 
 
 # =======================
+# LIMPAR CAMPOS
+# =======================
+
+def limpar_campos():
+    st.session_state.entrada = ""
+    st.session_state.resultado = ""
+
+
+# =======================
 # INTERFACE
 # =======================
 
@@ -308,12 +305,12 @@ st.set_page_config(page_title="Gerador GPON", layout="wide")
 st.title("🔧 Gerador de Alarmes GPON")
 
 if "entrada" not in st.session_state:
-    st.session_state["entrada"] = ""
+    st.session_state.entrada = ""
 
 if "resultado" not in st.session_state:
-    st.session_state["resultado"] = ""
+    st.session_state.resultado = ""
 
-entrada = st.text_area(
+st.text_area(
     "Cole os alarmes aqui:",
     height=300,
     key="entrada"
@@ -323,8 +320,8 @@ col1, col2 = st.columns(2)
 
 with col1:
     if st.button("🚀 Gerar Alarme"):
-        if entrada.strip():
-            linhas = entrada.strip().split("\n")
+        if st.session_state.entrada.strip():
+            linhas = st.session_state.entrada.strip().split("\n")
             gerencia = detectar_gerencia(linhas)
 
             if gerencia == "AMS":
@@ -339,18 +336,15 @@ with col1:
             else:
                 resultado = gerar_tickets_texto(gerencia, linhas)
 
-            st.session_state["resultado"] = resultado
+            st.session_state.resultado = resultado
         else:
             st.warning("Cole algum conteúdo primeiro.")
 
 with col2:
-    if st.button("🧹 Limpar"):
-        st.session_state["entrada"] = ""
-        st.session_state["resultado"] = ""
-        st.rerun()
+    st.button("🧹 Limpar", on_click=limpar_campos)
 
 st.text_area(
     "Resultado:",
-    st.session_state["resultado"],
+    st.session_state.resultado,
     height=300
 )
