@@ -14,7 +14,7 @@ def detectar_gerencia(linhas):
 
         # PRIMÁRIA CSV
         if "pon port:" in l and ".lt" in l and ".pon" in l:
-            return "PRIMARIA"
+            return "PRIMARIA_CSV"
 
         # AMS5520 ONT
         if "ont:" in l and ".lt" in l and ".pon" in l:
@@ -40,6 +40,23 @@ def detectar_gerencia(linhas):
             return "UNM2000"
 
     return "IMASTER"
+
+
+# =======================
+# DETECTAR TIPO FALHA
+# =======================
+
+def detectar_tipo_falha(linhas):
+    for linha in linhas:
+        l = linha.lower()
+
+        if "the feeder fiber is broken" in l:
+            return "PRIMARIA"
+
+        if "the distribute fiber is broken" in l:
+            return "SECUNDARIA"
+
+    return "SECUNDARIA"
 
 
 # =======================
@@ -98,7 +115,6 @@ def extrair_sfp_ams(linhas):
 # =======================
 
 def processar_linhas(gerencia, linhas, data):
-
     agrupado = defaultdict(list)
 
     for linha in linhas:
@@ -123,13 +139,13 @@ def processar_linhas(gerencia, linhas, data):
                         re.IGNORECASE
                     )
 
-                    if not (olt_match and slot_match and port_match):
+                    if not (olt_match and slot_match and port_match and onu_match):
                         continue
 
                     olt = olt_match.group(1)
                     slot = int(slot_match.group(1))
                     port = int(port_match.group(1))
-                    onu = int(onu_match.group(1)) if onu_match else 0
+                    onu = int(onu_match.group(1))
 
                     contrato = "NCE"
                     if contrato_match:
@@ -139,26 +155,7 @@ def processar_linhas(gerencia, linhas, data):
                     continue
 
             else:
-                colunas = linha.split("\t")
-
-                if len(colunas) < 9:
-                    continue
-
-                try:
-                    onu_field = colunas[7]
-                    contrato = colunas[8]
-
-                    match = re.search(r'OnuID(\d+)', onu_field)
-                    if not match:
-                        continue
-
-                    onu = int(match.group(1))
-                    slot = int(colunas[4])
-                    port = int(colunas[5])
-                    olt = onu_field.split("/")[0]
-
-                except:
-                    continue
+                continue
 
         # ================= UNM2000 =================
         elif gerencia == "UNM2000":
@@ -221,27 +218,84 @@ def processar_linhas(gerencia, linhas, data):
 # =======================
 
 def gerar_tickets_texto(gerencia, linhas):
-    data = datetime.now().strftime("%Y-%m-%d %H:%M")
-    agrupado = processar_linhas(gerencia, linhas, data)
+    data = datetime.now().strftime("%d/%m/%Y %H:%M")
+    tipo = detectar_tipo_falha(linhas)
 
+    # ================= PRIMARIA =================
+    if tipo == "PRIMARIA":
+        olt = ""
+        interfaces = []
+        total_circuitos = 0
+
+        for linha in linhas:
+            linha = linha.strip()
+
+            if not linha:
+                continue
+
+            olt_match = re.search(r'(olt[^\s,\t]+)', linha, re.IGNORECASE)
+            slot_match = re.search(r'Slot=(\d+)', linha, re.IGNORECASE)
+            port_match = re.search(r'Port=(\d+)', linha, re.IGNORECASE)
+            afetados_match = re.search(
+                r'The number of affected ONTs=(\d+)',
+                linha,
+                re.IGNORECASE
+            )
+
+            if olt_match:
+                olt = olt_match.group(1)
+
+            if slot_match and port_match:
+                interfaces.append(
+                    f"{slot_match.group(1)}/{port_match.group(1)}"
+                )
+
+            if afetados_match:
+                total_circuitos += int(afetados_match.group(1))
+
+        interfaces = sorted(set(interfaces))
+
+        resultado = f"""-:CARIMBO DE ABERTURA - NOC:-.
+Falha: Falha em rede Primaira, OLT: {olt}
+Hora/data: {data}
+Equipamento: OLT: {olt}
+
+Interface: {", ".join(interfaces)}
+Circuitos afetados: {total_circuitos}
+
+Fone NOC 3318-7890
+
+
+"""
+
+        for interface in interfaces:
+            slot, port = interface.split("/")
+            resultado += f"Slot:{slot}/Port:{port}\n"
+
+        return resultado
+
+    # ================= SECUNDARIA =================
+    agrupado = processar_linhas(gerencia, linhas, data)
     resultado = ""
 
     for chave, dados in agrupado.items():
-        resultado += "\n============================\n"
-
         olt, slot, port, data = chave
         lista = sorted(dados, key=lambda x: x["onu"])
 
-        resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
+        resultado += f"""-:CARIMBO DE ABERTURA - NOC:-.
+Falha: Secundaria :{olt} - {slot}/{port}
+Hora/data: {data}
+Circuitos Afetados: {len(lista)}
 
-{olt} - {slot}/{port}
 
-ONUs e CONTRATOS AFETADOS:
+Interface: {olt} - {slot}/{port} - Secundaria
 
 """
 
         for e in lista:
             resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
+
+        resultado += "\n"
 
     return resultado
 
@@ -269,7 +323,7 @@ with col1:
             elif gerencia == "AMS_SFP":
                 resultado = extrair_sfp_ams(linhas)
 
-            elif gerencia == "PRIMARIA":
+            elif gerencia == "PRIMARIA_CSV":
                 resultado = extrair_primaria_csv(linhas)
 
             else:
