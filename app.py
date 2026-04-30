@@ -40,71 +40,20 @@ def extrair_data(linhas):
         if match:
             dt = datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S")
             return dt.strftime("%d/%m/%Y %H:%M")
-
     return datetime.now().strftime("%d/%m/%Y %H:%M")
 
 
 # =======================
-# AMS5520
+# AMS
 # =======================
 
 def extrair_onts_ams(linhas):
-    onts_completas = []
-    portas_sem_ont = []
-    olts = set()
-
+    resultado = []
     for linha in linhas:
-        linha = linha.strip()
-
-        match_full = re.search(
-            r'ONT:(OLT\w+:R\d+\.S\d+\.LT\d+\.PON\d+\.ONT\d+)',
-            linha,
-            re.IGNORECASE
-        )
-
-        match_porta = re.search(
-            r'ONT:(OLT\w+:R\d+\.S\d+\.LT\d+\.PON\d+)',
-            linha,
-            re.IGNORECASE
-        )
-
-        if match_full:
-            onts_completas.append(match_full.group(1).upper())
-
-        if match_porta:
-            porta = match_porta.group(1).upper()
-            portas_sem_ont.append(porta)
-
-            olt_match = re.search(r'^(OLT[^:]+)', porta)
-            if olt_match:
-                olts.add(olt_match.group(1))
-
-    portas_unicas = set(portas_sem_ont)
-
-    # se existem várias ONTs na mesma PON = primária
-    eh_primaria = len(onts_completas) > len(portas_unicas)
-
-    # ================= PRIMÁRIA =================
-    if eh_primaria:
-        resultado = "Indisponibilidade em rede PRIMARIA:\n"
-
-        if olts:
-            resultado += f"GPON PRIMARIA: {', '.join(sorted(olts))}\n\n"
-
-        for porta in sorted(portas_unicas):
-            resultado += f"{porta} - \n"
-
-        return resultado
-
-    # ================= SECUNDÁRIA =================
-    resultado = "Indisponibilidade em rede SECUNDARIA:\n"
-    resultado += "GPON SECUNDARIA:\n"
-
-    for ont in sorted(set(onts_completas)):
-        resultado += f"{ont}\n"
-
-    resultado += "\nHTT-AFETADOS:"
-    return resultado
+        match = re.search(r'ONT:[^,]+', linha)
+        if match:
+            resultado.append(match.group(0))
+    return "\n".join(resultado)
 
 
 # =======================
@@ -138,7 +87,7 @@ def extrair_sfp(linhas):
 
 
 # =======================
-# PROCESSAR IMASTER / UNM
+# PROCESSAMENTO GERAL
 # =======================
 
 def processar_linhas(linhas):
@@ -148,9 +97,11 @@ def processar_linhas(linhas):
 
         # IMASTER / NCE
         if "Frame=" in linha:
+
             olt = re.search(r'\t([^\t]+)\tFrame=', linha)
             slot = re.search(r'Slot=(\d+)', linha)
             port = re.search(r'Port=(\d+)', linha)
+
             onu = re.search(r'ONUID=(\d+)', linha)
             password = re.search(r'Password=(\d+)', linha)
             desc = re.search(r'Description.*?=(\d+)', linha)
@@ -161,7 +112,11 @@ def processar_linhas(linhas):
             olt = olt.group(1)
             slot = int(slot.group(1))
             port = int(port.group(1))
-            onu = int(onu.group(1)) if onu else 0
+
+            if onu:
+                onu = int(onu.group(1))
+            else:
+                onu = 0
 
             if password:
                 contrato = password.group(1)
@@ -172,8 +127,8 @@ def processar_linhas(linhas):
 
         # UNM2000
         elif "\t" in linha:
-            col = linha.split("\t")
 
+            col = linha.split("\t")
             if len(col) < 6:
                 continue
 
@@ -203,18 +158,15 @@ def processar_linhas(linhas):
 
 
 # =======================
-# GERAR TICKET
+# GERAR TEXTO FINAL
 # =======================
 
 def gerar_ticket(linhas):
+
     gerencia = detectar_gerencia(linhas)
     data = extrair_data(linhas)
 
-    # AMS
-    if gerencia == "AMS":
-        return extrair_onts_ams(linhas)
-
-    # PRIMÁRIA PON
+    # ================= PRIMÁRIA PON =================
     if gerencia == "PRIMARIA_PON":
         portas = extrair_primaria_pon(linhas)
 
@@ -230,15 +182,22 @@ Fone NOC 3318-7890
 {portas}
 """
 
-    # SFP
+    # ================= SFP =================
     if gerencia == "SFP":
-        return extrair_sfp(linhas)
+        sfp = extrair_sfp(linhas)
+        return sfp
 
-    # SECUNDÁRIA
+    # ================= AMS =================
+    if gerencia == "AMS":
+        return extrair_onts_ams(linhas)
+
+    # ================= SECUNDÁRIA =================
     agrupado = processar_linhas(linhas)
+
     resultado = ""
 
     for (olt, slot, port), lista in agrupado.items():
+
         lista = sorted(lista, key=lambda x: x[0])
 
         resultado += f"""-:CARIMBO DE ABERTURA - NOC:-.
@@ -255,8 +214,6 @@ ONUs e CONTRATOS AFETADOS:
 
         for onu, contrato in lista:
             resultado += f"ONU {onu} - Contrato {contrato}\n"
-
-        resultado += "\n"
 
     return resultado
 
@@ -275,11 +232,7 @@ if "entrada" not in st.session_state:
 if "resultado" not in st.session_state:
     st.session_state["resultado"] = ""
 
-st.text_area(
-    "Cole os alarmes aqui:",
-    height=300,
-    key="entrada"
-)
+entrada = st.text_area("Cole os alarmes aqui:", height=300, key="entrada")
 
 col1, col2 = st.columns(2)
 
@@ -297,8 +250,4 @@ with col2:
         st.rerun()
 
 if st.session_state.get("resultado"):
-    st.text_area(
-        "Resultado:",
-        value=st.session_state["resultado"],
-        height=350
-    )
+    st.text_area("Resultado:", st.session_state["resultado"], height=350)
