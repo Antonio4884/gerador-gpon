@@ -12,16 +12,11 @@ def detectar_gerencia(linhas):
     for linha in linhas:
         l = linha.lower()
 
-        # PRIMÁRIA precisa vir antes
-        if "pon port:" in l and "los" in l:
+        # PRIMÁRIA CSV
+        if "pon port:" in l and ".lt" in l and ".pon" in l:
             return "PRIMARIA"
 
-        if "los" in l or "feeder fiber is broken" in l:
-            if "onuid=" in l:
-                return "IMASTER"
-            return "PRIMARIA"
-
-        # AMS ONT
+        # AMS5520 ONT
         if "ont:" in l and ".lt" in l and ".pon" in l:
             return "AMS"
 
@@ -40,7 +35,7 @@ def detectar_gerencia(linhas):
         if "zte" in l or "com.zte" in l:
             return "ZTE"
 
-        # UNM
+        # UNM2000
         if "\t" in linha and ("off line" in l or "link loss" in l):
             return "UNM2000"
 
@@ -48,13 +43,32 @@ def detectar_gerencia(linhas):
 
 
 # =======================
-# AMS ONT
+# EXTRAIR PRIMÁRIA CSV
+# =======================
+
+def extrair_primaria_csv(linhas):
+    resultado = []
+
+    for linha in linhas:
+        linha = linha.strip()
+
+        match = re.search(r'PON Port:([^,]+)', linha, re.IGNORECASE)
+        if match:
+            resultado.append(match.group(1))
+
+    return "\n".join(resultado)
+
+
+# =======================
+# EXTRAIR AMS ONT
 # =======================
 
 def extrair_onts_ams(linhas):
     resultado = []
 
     for linha in linhas:
+        linha = linha.strip()
+
         match = re.search(r'ONT:[^,\s]+', linha)
         if match:
             resultado.append(match.group(0))
@@ -63,13 +77,15 @@ def extrair_onts_ams(linhas):
 
 
 # =======================
-# AMS SFP
+# EXTRAIR AMS SFP
 # =======================
 
 def extrair_sfp_ams(linhas):
     resultado = []
 
     for linha in linhas:
+        linha = linha.strip()
+
         match = re.search(r'Ethernet LT Port:([^,]+,SFP)', linha)
         if match:
             resultado.append(match.group(1))
@@ -83,10 +99,7 @@ def extrair_sfp_ams(linhas):
 
 def processar_linhas(gerencia, linhas, data):
 
-    if gerencia == "PRIMARIA":
-        agrupado = defaultdict(set)
-    else:
-        agrupado = defaultdict(list)
+    agrupado = defaultdict(list)
 
     for linha in linhas:
         linha = linha.strip()
@@ -94,57 +107,58 @@ def processar_linhas(gerencia, linhas, data):
         if not linha:
             continue
 
-        # ================= PRIMÁRIA =================
-        if gerencia == "PRIMARIA":
-            try:
-                olt_match = re.search(r'PON Port:([^,]+)', linha, re.IGNORECASE)
-                slot_match = re.search(r'\.LT(\d+)', linha, re.IGNORECASE)
-                port_match = re.search(r'\.PON(\d+)', linha, re.IGNORECASE)
+        # ================= IMASTER =================
+        if gerencia == "IMASTER":
 
-                if olt_match and slot_match and port_match:
+            if "frame=" in linha.lower() and "slot=" in linha.lower() and "port=" in linha.lower():
+                try:
+                    olt_match = re.search(r'(olt[^\s,\t]+)', linha, re.IGNORECASE)
+                    slot_match = re.search(r'Slot=(\d+)', linha, re.IGNORECASE)
+                    port_match = re.search(r'Port=(\d+)', linha, re.IGNORECASE)
+                    onu_match = re.search(r'ONUID=(\d+)', linha, re.IGNORECASE)
+
+                    contrato_match = re.search(
+                        r'Password=(\d+)|Description of the ONT\(only for NMS\)=(\d+)',
+                        linha,
+                        re.IGNORECASE
+                    )
+
+                    if not (olt_match and slot_match and port_match):
+                        continue
+
                     olt = olt_match.group(1)
                     slot = int(slot_match.group(1))
                     port = int(port_match.group(1))
+                    onu = int(onu_match.group(1)) if onu_match else 0
 
-                    agrupado[(olt, data)].add((slot, port))
+                    contrato = "NCE"
+                    if contrato_match:
+                        contrato = contrato_match.group(1) or contrato_match.group(2)
+
+                except:
                     continue
 
-            except:
-                continue
-
-        # ================= IMASTER =================
-        elif gerencia == "IMASTER":
-            try:
+            else:
                 colunas = linha.split("\t")
 
-                if len(colunas) >= 6:
-                    # OLT
-                    olt = colunas[4] if len(colunas) > 4 else "OLT-NCE"
-
-                olt_match = re.search(r'(olt[^\s\t,]+)', linha, re.IGNORECASE)
-                slot_match = re.search(r'Slot=(\d+)', linha, re.IGNORECASE)
-                port_match = re.search(r'Port=(\d+)', linha, re.IGNORECASE)
-                onu_match = re.search(r'ONUID=(\d+)', linha, re.IGNORECASE)
-                contrato_match = re.search(
-                    r'Password=(\d+)|Description of the ONT\(only for NMS\)=(\d+)',
-                    linha,
-                    re.IGNORECASE
-                )
-
-                if not (olt_match and slot_match and port_match):
+                if len(colunas) < 9:
                     continue
 
-                olt = olt_match.group(1)
-                slot = int(slot_match.group(1))
-                port = int(port_match.group(1))
-                onu = int(onu_match.group(1)) if onu_match else 0
+                try:
+                    onu_field = colunas[7]
+                    contrato = colunas[8]
 
-                contrato = "NCE"
-                if contrato_match:
-                    contrato = contrato_match.group(1) or contrato_match.group(2)
+                    match = re.search(r'OnuID(\d+)', onu_field)
+                    if not match:
+                        continue
 
-            except:
-                continue
+                    onu = int(match.group(1))
+                    slot = int(colunas[4])
+                    port = int(colunas[5])
+                    olt = onu_field.split("/")[0]
+
+                except:
+                    continue
 
         # ================= UNM2000 =================
         elif gerencia == "UNM2000":
@@ -156,7 +170,12 @@ def processar_linhas(gerencia, linhas, data):
             try:
                 cliente = colunas[1]
 
-                contrato = cliente.split("_")[0]
+                if "_" in cliente:
+                    contrato = cliente.split("_")[0]
+                elif " " in cliente:
+                    contrato = cliente.split(" ")[0]
+                else:
+                    contrato = cliente
 
                 slot = int(colunas[3])
                 port = int(colunas[4])
@@ -210,26 +229,10 @@ def gerar_tickets_texto(gerencia, linhas):
     for chave, dados in agrupado.items():
         resultado += "\n============================\n"
 
-        if gerencia == "PRIMARIA":
-            olt, data = chave
-            portas = sorted(dados)
+        olt, slot, port, data = chave
+        lista = sorted(dados, key=lambda x: x["onu"])
 
-            resultado += f"""ALARME GPON – FALHA PRIMÁRIA
-
-{olt}
-
-PORTAS GPON AFETADAS:
-
-"""
-
-            for slot, port in portas:
-                resultado += f"SLOT {slot} / PON {port}\n"
-
-        else:
-            olt, slot, port, data = chave
-            lista = sorted(dados, key=lambda x: x["onu"])
-
-            resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
+        resultado += f"""ALARME GPON – FALHA SECUNDÁRIA
 
 {olt} - {slot}/{port}
 
@@ -237,8 +240,8 @@ ONUs e CONTRATOS AFETADOS:
 
 """
 
-            for e in lista:
-                resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
+        for e in lista:
+            resultado += f"ONU {e['onu']} - Contrato {e['contrato']}\n"
 
     return resultado
 
@@ -265,6 +268,9 @@ with col1:
 
             elif gerencia == "AMS_SFP":
                 resultado = extrair_sfp_ams(linhas)
+
+            elif gerencia == "PRIMARIA":
+                resultado = extrair_primaria_csv(linhas)
 
             else:
                 resultado = gerar_tickets_texto(gerencia, linhas)
